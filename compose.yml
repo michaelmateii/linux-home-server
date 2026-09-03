@@ -1,0 +1,188 @@
+services:
+  jellyfin:
+    image: jellyfin/jellyfin:latest
+    container_name: jellyfin
+    restart: unless-stopped
+    ports:
+      - "${LAN_BIND_IP:-127.0.0.1}:8096:8096"
+    devices:
+      - /dev/dri:/dev/dri
+    volumes:
+      - ${CONFIG_ROOT}/jellyfin/config:/config
+      - ${CONFIG_ROOT}/jellyfin/cache:/cache
+      - ${MEDIA_ROOT}:/media
+
+  sabnzbd:
+    image: lscr.io/linuxserver/sabnzbd:latest
+    container_name: sabnzbd
+    restart: unless-stopped
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - ${CONFIG_ROOT}/sabnzbd/config:/config
+      - ${DATA_ROOT}:/data
+    ports:
+      - "${LAN_BIND_IP:-127.0.0.1}:8081:8080"
+
+  gluetun:
+    image: qmcgaw/gluetun:latest
+    container_name: gluetun
+    restart: unless-stopped
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    environment:
+      - VPN_SERVICE_PROVIDER=${VPN_SERVICE_PROVIDER}
+      - OPENVPN_USER=${OPENVPN_USER}
+      - OPENVPN_PASSWORD=${OPENVPN_PASSWORD}
+      - SERVER_REGIONS=${VPN_SERVER_REGIONS}
+      - PORT_FORWARD_ONLY=${VPN_PORT_FORWARD_ONLY}
+      - VPN_PORT_FORWARDING=${VPN_PORT_FORWARDING}
+      - TZ=${TZ}
+    volumes:
+      - ${CONFIG_ROOT}/gluetun:/gluetun
+    ports:
+      - "${LAN_BIND_IP:-127.0.0.1}:8080:8080"
+
+  qbittorrent:
+    image: lscr.io/linuxserver/qbittorrent:latest
+    container_name: qbittorrent
+    restart: unless-stopped
+    network_mode: "service:gluetun"
+    depends_on:
+      - gluetun
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+      - WEBUI_PORT=8080
+    volumes:
+      - ${CONFIG_ROOT}/qbittorrent/config:/config
+      - ${DATA_ROOT}:/data
+
+  caddy:
+    image: caddy:latest
+    container_name: caddy
+    restart: unless-stopped
+    environment:
+      - JELLYFIN_DOMAIN=${JELLYFIN_DOMAIN}
+      - JELLYSEERR_DOMAIN=${JELLYSEERR_DOMAIN}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile.example:/etc/caddy/Caddyfile:ro
+      - ${CONFIG_ROOT}/caddy/data:/data
+      - ${CONFIG_ROOT}/caddy/config:/config
+
+  prowlarr:
+    image: lscr.io/linuxserver/prowlarr:latest
+    container_name: prowlarr
+    restart: unless-stopped
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - ${CONFIG_ROOT}/prowlarr/config:/config
+    ports:
+      - "${LAN_BIND_IP:-127.0.0.1}:9696:9696"
+
+  bazarr:
+    image: lscr.io/linuxserver/bazarr:latest
+    container_name: bazarr
+    restart: unless-stopped
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - ${CONFIG_ROOT}/bazarr/config:/config
+      - ${MEDIA_ROOT}/movies:/data/media/movies
+      - ${MEDIA_ROOT}/tv:/data/media/tv
+    ports:
+      - "${LAN_BIND_IP:-127.0.0.1}:6767:6767"
+
+  radarr:
+    image: lscr.io/linuxserver/radarr:latest
+    container_name: radarr
+    restart: unless-stopped
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - ${CONFIG_ROOT}/radarr/config:/config
+      - ${DATA_ROOT}:/data
+    ports:
+      - "${LAN_BIND_IP:-127.0.0.1}:7878:7878"
+
+  sonarr:
+    image: lscr.io/linuxserver/sonarr:latest
+    container_name: sonarr
+    restart: unless-stopped
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - ${CONFIG_ROOT}/sonarr/config:/config
+      - ${DATA_ROOT}:/data
+    ports:
+      - "${LAN_BIND_IP:-127.0.0.1}:8989:8989"
+
+  jellyseerr:
+    image: fallenbagel/jellyseerr:latest
+    container_name: jellyseerr
+    restart: unless-stopped
+    environment:
+      - LOG_LEVEL=info
+    volumes:
+      - ${CONFIG_ROOT}/jellyseerr/config:/app/config
+    ports:
+      - "${LAN_BIND_IP:-127.0.0.1}:5055:5055"
+
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:latest
+    container_name: flaresolverr
+    restart: unless-stopped
+    environment:
+      - LOG_LEVEL=info
+      - LOG_HTML=false
+      - CAPTCHA_SOLVER=none
+      - TZ=${TZ}
+    ports:
+      - "${LAN_BIND_IP:-127.0.0.1}:8191:8191"
+
+  netdata:
+    image: netdata/netdata:stable
+    container_name: netdata
+    hostname: ${SERVER_HOSTNAME:-homeserver}
+    ports:
+      - "${LAN_BIND_IP:-127.0.0.1}:19999:19999"
+    restart: unless-stopped
+    privileged: true
+    cap_add:
+      - SYS_PTRACE
+      - SYS_ADMIN
+      - SYS_RAWIO
+    security_opt:
+      - apparmor:unconfined
+    devices:
+      - ${MEDIA_DISK_DEVICE:-/dev/sda}:/dev/sda
+    volumes:
+      - ${CONFIG_ROOT}/netdata/config:/etc/netdata
+      - ${CONFIG_ROOT}/netdata/lib:/var/lib/netdata
+      - ${CONFIG_ROOT}/netdata/cache:/var/cache/netdata
+      - /:/host/root:ro,rslave
+      - /etc/passwd:/host/etc/passwd:ro
+      - /etc/group:/host/etc/group:ro
+      - /etc/localtime:/etc/localtime:ro
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /etc/os-release:/host/etc/os-release:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro

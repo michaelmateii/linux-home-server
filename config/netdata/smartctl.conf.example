@@ -1,0 +1,10 @@
+jobs:
+  - name: storage
+    extra_devices:
+      - name: /dev/sda
+        type: sat
+      - name: /dev/sdb
+        type: sat
+      - name: /dev/nvme0
+        type: nvme
+    poll_devices_every: 60

@@ -1,0 +1,11 @@
+name,contexts,recipients,classes,components,types,criticalNodes,warningNodes,clearNodes,errorNodes
+docker_container_down,"[""docker.container_state""]","[""sysadmin""]","[""Errors""]","[""Docker""]","[""Containers""]",0,0,12,0
+docker_container_unhealthy,"[""docker.container_health_status""]","[""sysadmin""]","[""Errors""]","[""Docker""]","[""Containers""]",0,0,12,0
+disk_space_usage,"[""disk.space""]","[""sysadmin""]","[""Utilization""]","[""Disk""]","[""System""]",0,0,4,0
+disk_inode_usage,"[""disk.inodes""]","[""sysadmin""]","[""Utilization""]","[""Disk""]","[""System""]",0,0,3,0
+10min_cpu_usage,"[""system.cpu""]","[""sysadmin""]","[""Utilization""]","[""CPU""]","[""System""]",0,0,1,0
+netfilter_conntrack_full,"[""netfilter.conntrack_sockets""]","[""sysadmin""]","[""Workload""]","[""Network""]","[""System""]",0,0,1,0
+nvme_device_critical_warnings_state,"[""nvme.device_critical_warnings_state""]","[""sysadmin""]","[""Errors""]","[""Disk""]","[""System""]",0,0,1,0
+ram_in_use,"[""system.ram""]","[""sysadmin""]","[""Utilization""]","[""Memory""]","[""System""]",0,0,1,0
+system_file_descriptors_utilization,"[""system.file_nr_utilization""]","[""sysadmin""]","[""Utilization""]","[""Processes""]","[""System""]",0,0,1,0
+used_swap,"[""mem.swap""]","[""sysadmin""]","[""Utilization""]","[""Memory""]","[""System""]",0,0,1,0
