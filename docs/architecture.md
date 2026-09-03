@@ -4,202 +4,9 @@ This page documents the current architecture of my personal Debian home server.
 
 The system was built as a practical homelab for learning Linux administration, Docker Compose, networking, storage management, monitoring, self-hosting, hardware-accelerated media playback, and troubleshooting.
 
-The diagram below represents the **actual current setup**. It intentionally separates public ingress, private administration, VPN-routed download traffic, application integrations, and physical storage.
+The documentation below represents the **actual current setup** while omitting real IP addresses, DNS names, credentials, account identifiers, and runtime data.
 
-## Architecture Diagram
-
-```mermaid
-flowchart TB
-
-    %% =========================================================
-    %% EXTERNAL ACCESS
-    %% =========================================================
-
-    RemoteClients["Remote clients<br/>Web • Mobile • TV"]
-    PublicInternet(("Public Internet"))
-    Router["Home Router / NAT<br/>WAN forwards:<br/>TCP 80<br/>TCP 443<br/>UDP 443"]
-
-    LANClients["Local LAN clients<br/>TV • Phone • Mac / PC"]
-
-    Tailscale["Tailscale<br/>Private administration<br/>Funnel disabled"]
-
-    VPNProvider["VPN Provider<br/>OpenVPN"]
-
-    %% =========================================================
-    %% PHYSICAL SERVER
-    %% =========================================================
-
-    subgraph Host["Debian 13 (Trixie) Home Server<br/>Intel Core i5-8600K • 6C/6T • 16 GB RAM<br/>Docker Engine 29.7.2 • Docker Compose v5.5.0"]
-
-        %% =====================================================
-        %% DOCKER COMPOSE
-        %% =====================================================
-
-        subgraph Docker["Docker Compose Stack"]
-
-            Caddy["Caddy<br/>HTTPS Reverse Proxy<br/>:80 / :443"]
-
-            Jellyfin["Jellyfin :8096<br/>Media Server<br/>Intel Quick Sync (QSV)<br/>/dev/dri/renderD128"]
-
-            Jellyseerr["Jellyseerr :5055<br/>Request Interface"]
-
-            Sonarr["Sonarr :8989<br/>TV Automation"]
-
-            Radarr["Radarr :7878<br/>Movie Automation"]
-
-            Prowlarr["Prowlarr :9696<br/>Indexer Integration"]
-
-            Bazarr["Bazarr :6767<br/>Subtitle Management"]
-
-            Flaresolverr["FlareSolverr :8191<br/>Optional Support Service for<br/>Compatible Indexer Workflows"]
-
-            Qbit["qBittorrent :8080<br/>Download Client"]
-
-            Gluetun["Gluetun<br/>VPN Gateway<br/>OpenVPN"]
-
-            Netdata["Netdata :19999<br/>Host / Docker / Disk Monitoring"]
-
-            SAB["SABnzbd :8081<br/>Installed<br/>Not Currently Used"]
-
-            %% -------------------------------------------------
-            %% PUBLIC REVERSE PROXY
-            %% -------------------------------------------------
-
-            Caddy -->|HTTPS reverse proxy| Jellyfin
-            Caddy -->|HTTPS reverse proxy| Jellyseerr
-
-            %% -------------------------------------------------
-            %% REQUEST MANAGEMENT
-            %% -------------------------------------------------
-
-            Jellyseerr -->|Requests| Sonarr
-            Jellyseerr -->|Requests| Radarr
-            Jellyseerr <-->|Library / user integration| Jellyfin
-
-            %% -------------------------------------------------
-            %% INDEXER MANAGEMENT
-            %% -------------------------------------------------
-
-            Prowlarr -->|Indexer sync| Sonarr
-            Prowlarr -->|Indexer sync| Radarr
-            Flaresolverr -.->|Optional support| Prowlarr
-
-            %% -------------------------------------------------
-            %% DOWNLOAD CLIENT
-            %% -------------------------------------------------
-
-            Sonarr -->|Download client| Qbit
-            Radarr -->|Download client| Qbit
-
-            %% -------------------------------------------------
-            %% SUBTITLES
-            %% -------------------------------------------------
-
-            Bazarr <-->|Library metadata| Sonarr
-            Bazarr <-->|Library metadata| Radarr
-
-            %% -------------------------------------------------
-            %% VPN NETWORK NAMESPACE
-            %% -------------------------------------------------
-
-            Qbit -->|"network_mode: service:gluetun"| Gluetun
-        end
-
-        %% =====================================================
-        %% NVME STORAGE
-        %% =====================================================
-
-        subgraph NVMe["250 GB NVMe SSD • ext4"]
-
-            Root["/<br/>Debian OS"]
-
-            DockerData["/srv/docker<br/>Persistent Container Configuration"]
-
-            Downloads["/srv/downloads<br/>complete / incomplete"]
-        end
-
-        %% =====================================================
-        %% MEDIA STORAGE
-        %% =====================================================
-
-        subgraph HDD["3 TB HDD • ext4 • mounted at /srv/media"]
-
-            Media["/srv/media"]
-
-            Movies["/srv/media/movies"]
-
-            TV["/srv/media/tv"]
-
-            Media --> Movies
-            Media --> TV
-        end
-
-        %% -----------------------------------------------------
-        %% DOWNLOAD / IMPORT STORAGE FLOW
-        %% -----------------------------------------------------
-
-        Qbit -->|Downloads| Downloads
-
-        Downloads -->|"Import / Copy<br/>Separate filesystems — NO HARDLINKS"| Media
-
-        %% -----------------------------------------------------
-        %% MEDIA ACCESS
-        %% -----------------------------------------------------
-
-        Media -->|Reads media| Jellyfin
-
-        Bazarr -->|Writes external SRT subtitles| Movies
-        Bazarr -->|Writes external SRT subtitles| TV
-
-        %% -----------------------------------------------------
-        %% MONITORING
-        %% -----------------------------------------------------
-
-        Netdata -.->|CPU / RAM / load / processes| Host
-        Netdata -.->|Container state / resource usage| Docker
-        Netdata -.->|Disk usage / I/O / SMART| NVMe
-        Netdata -.->|Disk usage / I/O / SMART| HDD
-    end
-
-    %% =========================================================
-    %% PUBLIC INGRESS
-    %% =========================================================
-
-    RemoteClients --> PublicInternet
-    PublicInternet --> Router
-    Router -->|TCP 80 / TCP 443 / UDP 443| Caddy
-
-    %% =========================================================
-    %% LOCAL ACCESS
-    %% =========================================================
-
-    LANClients -->|Direct local playback| Jellyfin
-
-    %% =========================================================
-    %% PRIVATE ADMINISTRATION
-    %% =========================================================
-
-    Tailscale -.->|SSH / private administration| Host
-    Tailscale -.->|Private management UI access| Docker
-
-    %% =========================================================
-    %% VPN EGRESS
-    %% =========================================================
-
-    Gluetun --> VPNProvider
-    VPNProvider --> PublicInternet
-
-    %% =========================================================
-    %% STORAGE DESIGN NOTE
-    %% =========================================================
-
-    HardlinkNote["Storage design note:<br/>/srv/downloads is on the NVMe<br/>/srv/media is on a separate HDD filesystem<br/>Linux hardlinks cannot cross these filesystems"]
-
-    Downloads -.-> HardlinkNote
-    Media -.-> HardlinkNote
-```
-
-## Host Platform
+## Host platform
 
 The current server is built from standard desktop hardware rather than dedicated server hardware:
 
@@ -216,51 +23,65 @@ The current server is built from standard desktop hardware rather than dedicated
 
 The server runs headless and is normally administered remotely.
 
-## Public Access
+## Architecture summary
 
-Public web access follows a deliberately small ingress path:
+The server separates public ingress, private administration, VPN-routed download traffic, application integrations, monitoring, and physical storage.
+
+### Public web access
 
 ```text
-Remote client
-    ↓
-Internet
-    ↓
+Remote clients
+      |
+   Internet
+      |
 Home router / NAT
-    ↓
-Caddy
-   ↙   ↘
-Jellyfin Jellyseerr
+      |
+ TCP 80 / TCP 443 / UDP 443
+      |
+    Caddy
+   /     \
+Jellyfin  Jellyseerr
 ```
 
-The router forwards only:
+Caddy is the only Docker service intentionally used as the public application entry point.
 
-```text
-TCP 80
-TCP 443
-UDP 443
-```
+The real public DNS names are omitted from the repository and replaced with example values in the published Caddy configuration.
 
-Caddy is the reverse proxy and the only Docker service intentionally used as the public application entry point.
+Administrative applications such as Sonarr, Radarr, Prowlarr, Bazarr, qBittorrent, and Netdata are not intentionally exposed through router port forwarding.
 
-The real public DNS names are omitted from this repository and replaced with example values in the published Caddy configuration.
+### Private administration
 
-Administrative applications such as Sonarr, Radarr, Prowlarr, Bazarr, qBittorrent, and Netdata are **not intentionally exposed through router port forwarding**.
-
-## Private Administration
-
-Tailscale provides a separate private administration path.
-
-It is used for tasks such as:
+Tailscale provides a separate private administration path for:
 
 - SSH access
 - remote server administration
 - private access to management interfaces
 
-Tailscale Funnel was previously tested but is disabled in the current architecture.
+Tailscale Funnel was previously tested but is disabled in the current architecture. It is not part of the public Jellyfin/Jellyseerr ingress path.
 
-Tailscale therefore does not form part of the public Jellyfin/Jellyseerr ingress path.
+### VPN-routed download traffic
 
-## Docker Compose Stack
+qBittorrent shares Gluetun's network namespace:
+
+```yaml
+network_mode: "service:gluetun"
+```
+
+The outbound path is therefore:
+
+```text
+qBittorrent
+    |
+  Gluetun
+    |
+VPN provider
+    |
+ Internet
+```
+
+The public documentation does not include real VPN credentials or provider-specific account information.
+
+## Docker Compose stack
 
 The server currently runs the following services:
 
@@ -275,9 +96,11 @@ The server currently runs the following services:
 | Bazarr | Subtitle management |
 | qBittorrent | Download client |
 | Gluetun | VPN gateway for qBittorrent |
-| FlareSolverr | Support service for compatible indexer workflows |
+| FlareSolverr | Optional support service for compatible indexer workflows |
 | Netdata | Host, Docker, disk and SMART monitoring |
 | SABnzbd | Installed but not currently part of the active workflow |
+
+## Service relationships
 
 ### Request flow
 
@@ -301,9 +124,7 @@ Prowlarr
 └── Radarr
 ```
 
-FlareSolverr is an auxiliary support service for compatible indexer workflows.
-
-It is not part of the primary download path.
+FlareSolverr is an optional auxiliary support service for compatible indexer workflows. It is not part of the primary download path.
 
 ### Download flow
 
@@ -315,37 +136,23 @@ Sonarr ─┐
 Radarr ─┘
 ```
 
-SABnzbd is installed but currently unused, so it is not represented as part of the active download workflow.
+qBittorrent then routes its network traffic through Gluetun.
 
-## VPN Isolation
+SABnzbd is installed but currently unused, so it is not part of the active download workflow.
 
-qBittorrent does not use its own normal Docker network namespace.
+### Subtitle flow
 
-The Compose configuration uses:
-
-```yaml
-network_mode: "service:gluetun"
-```
-
-This causes qBittorrent to share Gluetun's network namespace.
-
-The outbound path is therefore:
+Bazarr integrates with Sonarr and Radarr for library information and writes external subtitle files alongside media:
 
 ```text
-qBittorrent
-    ↓
-Gluetun
-    ↓
-VPN Provider
-    ↓
-Internet
+Bazarr
+├── /srv/media/movies
+└── /srv/media/tv
 ```
 
-Gluetun currently uses OpenVPN with VPN port forwarding enabled. The real VPN provider and region are intentionally omitted from the public repository.
+External SRT subtitles were also useful for avoiding unnecessary playback transcoding caused by some image-based subtitle formats.
 
-This VPN egress path is separate from the public Caddy ingress path.
-
-## Jellyfin Hardware Acceleration
+## Jellyfin hardware acceleration
 
 Jellyfin is given access to the Intel integrated GPU through:
 
@@ -361,7 +168,9 @@ Jellyfin is configured to use Intel Quick Sync Video with:
 
 This allows supported transcoding workloads to use the integrated GPU rather than relying entirely on CPU-based software transcoding.
 
-## Storage Architecture
+![Jellyfin Intel Quick Sync configuration](../screenshots/jellyfin-qsv-transcoding.png)
+
+## Storage architecture
 
 The server currently uses two separate physical filesystems.
 
@@ -397,21 +206,21 @@ mounted at /srv/media
 
 The HDD contains the final Jellyfin media libraries.
 
-## Import Flow and Hardlink Limitation
+## Import flow and hardlink limitation
 
 The current storage layout creates an important limitation:
 
 ```text
 /srv/downloads
-     │
-     │ NVMe filesystem
-     ▼
+      |
+      | NVMe filesystem
+      v
  Import / Copy
-     │
-     │ separate filesystem
-     ▼
+      |
+      | separate filesystem
+      v
 /srv/media
-     HDD
+    HDD
 ```
 
 Linux hardlinks cannot cross filesystem boundaries.
@@ -423,20 +232,6 @@ Imports therefore become physical copies.
 This became an important troubleshooting lesson because a completed download could remain on the NVMe for seeding while another full copy already existed in `/srv/media`.
 
 A future storage redesign could place downloads and media on the same filesystem if functional hardlinks become a priority.
-
-## Subtitle Management
-
-Bazarr integrates with Sonarr and Radarr for library information.
-
-It writes external subtitle files directly alongside media:
-
-```text
-Bazarr
-├── /srv/media/movies
-└── /srv/media/tv
-```
-
-External SRT subtitles were also useful for avoiding unnecessary playback transcoding caused by some image-based subtitle formats.
 
 ## Monitoring
 
@@ -454,15 +249,23 @@ It is used for:
 - SMART information
 - NVMe health
 
-A custom Netdata health rule also watches for stopped Docker containers.
+A custom Netdata health rule watches for stopped Docker containers.
 
-Raw Netdata databases, metric exports, host identifiers and runtime data are deliberately excluded from the public repository.
+### Monitoring screenshots
 
-## Design Boundaries
+![Netdata system overview](../screenshots/netdata-system-overview.png)
+
+![Netdata storage overview](../screenshots/netdata-storage.png)
+
+![Netdata container overview](../screenshots/netdata-containers.png)
+
+Raw Netdata databases, metric exports, host identifiers, and runtime data are deliberately excluded from the public repository.
+
+## Current design boundaries
 
 This is a personal homelab rather than production infrastructure.
 
-The architecture deliberately documents several limitations rather than hiding them:
+The current design intentionally documents its limitations:
 
 - management services are designed primarily for trusted LAN/private access
 - downloads and media currently live on separate filesystems
